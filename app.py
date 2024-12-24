@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import sqlite3
-import bcrypt
+import hashlib
 import time
 import numpy as np
 import requests
@@ -42,11 +42,11 @@ except LookupError:
 
 
 def create_user(username, password):
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+    hashed = hashlib.sha256(password.encode('utf-8')).hexdigest()
     try:
         c.execute(
             "INSERT INTO users (username, password, balance) VALUES (?, ?, ?)",
-            (username, hashed, 1500.0),
+            (username, hashed, 1500.0)
         )
         conn.commit()
         return True
@@ -58,7 +58,8 @@ def verify_user(username, password):
     c.execute("SELECT password FROM users WHERE username = ?", (username,))
     result = c.fetchone()
     if result:
-        return bcrypt.checkpw(password.encode("utf-8"), result[0])
+        hashed = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        return hashed == result[0]
     return False
 
 
