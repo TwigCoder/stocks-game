@@ -2,7 +2,7 @@ nltk==3.9.1
 numpy==2.2.1
 pandas==2.2.3
 plotly==5.24.1
-python_bcrypt==0.3.2
+python_bcrypt
 Requests==2.32.3
 scipy==1.14.1
 streamlit==1.41.1
