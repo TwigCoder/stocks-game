@@ -1,4 +1,4 @@
-Welcome to the Stock Market Game! Check it out [here](WILL ADD LINK ONCE DEPLOYED).
+Welcome to the Stock Market Game! Check it out [here](https://stocks-game.streamlit.app).
 
 Create a free account using any username and password and start trading! Stock prices are always up-to-date.
 
