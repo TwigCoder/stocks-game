@@ -225,6 +225,8 @@ def calculate_diversification_metrics(portfolio):
         if sector_weights
         else 0
     )
+    if not sector_weights:
+        sector_diversity = 0.0
 
     industry_weights = [v / total_value for v in industry_allocation.values()]
     industry_diversity = (
@@ -232,6 +234,8 @@ def calculate_diversification_metrics(portfolio):
         if industry_weights
         else 0
     )
+    if not industry_weights:
+        industry_diversity = 0.0
 
     market_cap_categories = {"Large": 0, "Mid": 0, "Small": 0}
     for cap in market_caps:
