@@ -290,6 +290,9 @@ def analyze_news_sentiment(news_articles):
 
     sentiments = []
     for article in news_articles:
+        if not article.get("title") or not article.get("description"):
+            continue
+
         title_sentiment = analyze_sentiment(article["title"])
         desc_sentiment = analyze_sentiment(article["description"])
 
@@ -304,6 +307,9 @@ def analyze_news_sentiment(news_articles):
                 "date": article["publishedAt"][:10],
             }
         )
+
+    if not sentiments:
+        return None
 
     avg_sentiment = np.mean([s["score"] for s in sentiments])
     sentiment_label, color = get_sentiment_label(avg_sentiment)
