@@ -220,22 +220,25 @@ def calculate_diversification_metrics(portfolio):
         return None
 
     sector_weights = [v / total_value for v in sector_allocation.values()]
-    sector_diversity = (
-        1 - entropy(sector_weights) / np.log(len(sector_weights))
-        if sector_weights
-        else 0
-    )
     if not sector_weights:
         sector_diversity = 0.0
+    else:
+        sector_diversity = (
+            1 - entropy(sector_weights) / np.log(len(sector_weights))
+            if sector_weights
+            else 0
+        )
+    
 
     industry_weights = [v / total_value for v in industry_allocation.values()]
-    industry_diversity = (
-        1 - entropy(industry_weights) / np.log(len(industry_weights))
-        if industry_weights
-        else 0
-    )
     if not industry_weights:
         industry_diversity = 0.0
+    else:
+        industry_diversity = (
+            1 - entropy(industry_weights) / np.log(len(industry_weights))
+            if industry_weights
+            else 0
+        )
 
     market_cap_categories = {"Large": 0, "Mid": 0, "Small": 0}
     for cap in market_caps:
