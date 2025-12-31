@@ -138,15 +138,18 @@ def get_stock_data(symbol, period="1y"):
 
 def get_stock_price(stock):
     try:
+        hist = stock.history(period="1d")
+        if not hist.empty:
+            return hist["Close"].iloc[-1]
+    except Exception as e:
+        print(e)
+
+    try:
         return stock.info["regularMarketPrice"]
     except (KeyError, TypeError, json.JSONDecodeError, Exception):
-        try:
-            hist = stock.history(period="1d")
-            if not hist.empty:
-                return hist["Close"].iloc[-1]
-        except Exception:
-            pass
-        return None
+        pass
+
+    return None
 
 
 def get_news(symbol=None, general_market=False):
@@ -227,7 +230,7 @@ def calculate_diversification_metrics(portfolio):
     sector_diversity = 0 if len(sector_weights) <= 1 else (
         1 - entropy(sector_weights) / np.log(len(sector_weights))
     )
-    
+
 
     industry_weights = [v / total_value for v in industry_allocation.values()]
     industry_diversity = 0 if len(industry_weights) <= 1 else (
@@ -814,9 +817,9 @@ def main():
                     st.subheader("Transaction History")
                     c.execute(
                         """
-                        SELECT date, stock, type, shares, price, (shares * price) as total_value 
-                        FROM transactions 
-                        WHERE username = ? 
+                        SELECT date, stock, type, shares, price, (shares * price) as total_value
+                        FROM transactions
+                        WHERE username = ?
                         ORDER BY date DESC
                     """,
                         (st.session_state.username,),
