@@ -14,6 +14,7 @@ from collections import defaultdict
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
+import json
 
 conn = sqlite3.connect("stocks_game.db", check_same_thread=False)
 c = conn.cursor()
@@ -137,12 +138,18 @@ def get_stock_data(symbol, period="1y"):
 
 def get_stock_price(stock):
     try:
-        return stock.info["regularMarketPrice"]
-    except (KeyError, TypeError):
         hist = stock.history(period="1d")
         if not hist.empty:
             return hist["Close"].iloc[-1]
-        return None
+    except Exception:
+        pass
+    
+    try:
+        return stock.info["regularMarketPrice"]
+    except (KeyError, TypeError, json.JSONDecodeError, Exception):
+        pass
+    
+    return None
 
 
 def get_news(symbol=None, general_market=False):
@@ -383,186 +390,186 @@ def main():
                 current_price = get_stock_price(stock)
                 if current_price is None:
                     st.error(f"Unable to fetch price for {symbol}")
-                    return
-                st.metric("Current Price", f"${current_price:.2f}")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    shares = st.number_input(
-                        "Number of shares", min_value=0.0, step=1.0
-                    )
-                    total_cost = shares * current_price
-                    st.metric("Total Cost", f"${total_cost:.2f}")
-
-                    if st.button("Buy"):
-                        if total_cost <= balance:
-                            update_balance(st.session_state.username, -total_cost)
-                            update_portfolio(
-                                st.session_state.username, symbol, shares, "buy"
-                            )
-                            record_transaction(
-                                st.session_state.username,
-                                symbol,
-                                shares,
-                                current_price,
-                                "buy",
-                            )
-                            st.success(
-                                f"Successfully bought {shares} shares of {symbol}"
-                            )
-                            time.sleep(2)
-                            st.rerun()
-                        else:
-                            st.error("Insufficient funds")
-
-                with col2:
-                    portfolio = get_portfolio(st.session_state.username)
-                    owned_shares = 0.0
-                    for stock_symbol, shares_owned in portfolio:
-                        if stock_symbol == symbol:
-                            owned_shares = float(shares_owned)
-                            break
-
-                    shares_to_sell = st.number_input(
-                        "Number of shares to sell",
-                        min_value=0.0,
-                        max_value=float(owned_shares),
-                        step=1.0,
-                    )
-                    total_value = shares_to_sell * current_price
-                    st.metric("Total Value", f"${total_value:.2f}")
-
-                    if st.button("Sell"):
-                        if shares_to_sell <= owned_shares:
-                            update_balance(st.session_state.username, total_value)
-                            update_portfolio(
-                                st.session_state.username,
-                                symbol,
-                                shares_to_sell,
-                                "sell",
-                            )
-                            record_transaction(
-                                st.session_state.username,
-                                symbol,
-                                shares_to_sell,
-                                current_price,
-                                "sell",
-                            )
-                            st.success(
-                                f"Successfully sold {shares_to_sell} shares of {symbol}"
-                            )
-                            time.sleep(2)
-                            st.rerun()
-                        else:
-                            st.error("Insufficient shares")
-
-                hist = get_stock_data(symbol)
-                fig = go.Figure(
-                    data=[
-                        go.Candlestick(
-                            x=hist.index,
-                            open=hist["Open"],
-                            high=hist["High"],
-                            low=hist["Low"],
-                            close=hist["Close"],
-                        )
-                    ]
-                )
-                fig.update_layout(title=f"{symbol} Stock Price History")
-                st.plotly_chart(fig)
-
-                st.subheader(f"Latest News for {symbol}")
-                news = get_news(symbol)
-                if news:
-                    for article in news:
-                        with st.expander(article["title"]):
-                            st.write(f"**Source:** {article['source']['name']}")
-                            st.write(f"**Published:** {article['publishedAt'][:10]}")
-                            st.write(article["description"])
-                            st.markdown(f"[Read more]({article['url']})")
                 else:
-                    st.info("No recent news found.")
+                    st.metric("Current Price", f"${current_price:.2f}")
 
-                st.subheader("Technical Analysis")
-                col1, col2 = st.columns(2)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        shares = st.number_input(
+                            "Number of shares", min_value=0.0, step=1.0
+                        )
+                        total_cost = shares * current_price
+                        st.metric("Total Cost", f"${total_cost:.2f}")
 
-                with col1:
-                    hist["MA20"] = hist["Close"].rolling(window=20).mean()
-                    hist["MA50"] = hist["Close"].rolling(window=50).mean()
-                    hist["MA200"] = hist["Close"].rolling(window=200).mean()
+                        if st.button("Buy"):
+                            if total_cost <= balance:
+                                update_balance(st.session_state.username, -total_cost)
+                                update_portfolio(
+                                    st.session_state.username, symbol, shares, "buy"
+                                )
+                                record_transaction(
+                                    st.session_state.username,
+                                    symbol,
+                                    shares,
+                                    current_price,
+                                    "buy",
+                                )
+                                st.success(
+                                    f"Successfully bought {shares} shares of {symbol}"
+                                )
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("Insufficient funds")
 
-                    fig_ma = px.line(
-                        hist,
-                        x=hist.index,
-                        y=["Close", "MA20", "MA50", "MA200"],
-                        title=f"{symbol} - Moving Averages",
-                        template="plotly_white",
-                    )
-                    fig_ma.update_layout(yaxis_title="Price", xaxis_title="Date")
-                    st.plotly_chart(fig_ma, use_container_width=True)
+                    with col2:
+                        portfolio = get_portfolio(st.session_state.username)
+                        owned_shares = 0.0
+                        for stock_symbol, shares_owned in portfolio:
+                            if stock_symbol == symbol:
+                                owned_shares = float(shares_owned)
+                                break
 
-                    hist["Returns"] = hist["Close"].pct_change()
-                    fig_returns = px.histogram(
-                        hist,
-                        x="Returns",
-                        title=f"{symbol} - Returns Distribution",
-                        template="plotly_white",
-                        nbins=50,
-                    )
-                    st.plotly_chart(fig_returns, use_container_width=True)
+                        shares_to_sell = st.number_input(
+                            "Number of shares to sell",
+                            min_value=0.0,
+                            max_value=float(owned_shares),
+                            step=1.0,
+                        )
+                        total_value = shares_to_sell * current_price
+                        st.metric("Total Value", f"${total_value:.2f}")
 
-                with col2:
-                    fig_vol = px.bar(
-                        hist,
-                        x=hist.index,
-                        y="Volume",
-                        title=f"{symbol} - Volume Analysis",
-                        template="plotly_white",
-                    )
-                    st.plotly_chart(fig_vol, use_container_width=True)
+                        if st.button("Sell"):
+                            if shares_to_sell <= owned_shares:
+                                update_balance(st.session_state.username, total_value)
+                                update_portfolio(
+                                    st.session_state.username,
+                                    symbol,
+                                    shares_to_sell,
+                                    "sell",
+                                )
+                                record_transaction(
+                                    st.session_state.username,
+                                    symbol,
+                                    shares_to_sell,
+                                    current_price,
+                                    "sell",
+                                )
+                                st.success(
+                                    f"Successfully sold {shares_to_sell} shares of {symbol}"
+                                )
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("Insufficient shares")
 
-                    hist["Volatility"] = (
-                        hist["Returns"].rolling(window=20).std() * np.sqrt(252) * 100
-                    )
-                    fig_vol = px.line(
-                        hist,
-                        x=hist.index,
-                        y="Volatility",
-                        title=f"{symbol} - 20-Day Rolling Volatility",
-                        template="plotly_white",
-                    )
-                    fig_vol.update_layout(yaxis_title="Volatility (%)")
-                    st.plotly_chart(fig_vol, use_container_width=True)
-
-                if symbol and news:
-                    st.subheader("News Sentiment Analysis")
-                    sentiment_data = analyze_news_sentiment(news)
-
-                    if sentiment_data:
-                        col1, col2 = st.columns([1, 2])
-
-                        with col1:
-                            st.markdown(f"### Overall Sentiment")
-                            st.markdown(
-                                f"<h2 style='color: {sentiment_data['color']}'>{sentiment_data['label']}</h2>",
-                                unsafe_allow_html=True,
+                    hist = get_stock_data(symbol)
+                    fig = go.Figure(
+                        data=[
+                            go.Candlestick(
+                                x=hist.index,
+                                open=hist["Open"],
+                                high=hist["High"],
+                                low=hist["Low"],
+                                close=hist["Close"],
                             )
-                            st.metric(
-                                "Sentiment Score",
-                                f"{sentiment_data['average_score']:.2f}",
-                            )
+                        ]
+                    )
+                    fig.update_layout(title=f"{symbol} Stock Price History")
+                    st.plotly_chart(fig)
 
-                        st.subheader("Article Sentiment Details")
-                        for article in sentiment_data["articles"]:
-                            sentiment_label, color = get_sentiment_label(
-                                article["score"]
-                            )
+                    st.subheader(f"Latest News for {symbol}")
+                    news = get_news(symbol)
+                    if news:
+                        for article in news:
                             with st.expander(article["title"]):
-                                st.markdown(f"**Date:** {article['date']}")
+                                st.write(f"**Source:** {article['source']['name']}")
+                                st.write(f"**Published:** {article['publishedAt'][:10]}")
+                                st.write(article["description"])
+                                st.markdown(f"[Read more]({article['url']})")
+                    else:
+                        st.info("No recent news found.")
+
+                    st.subheader("Technical Analysis")
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        hist["MA20"] = hist["Close"].rolling(window=20).mean()
+                        hist["MA50"] = hist["Close"].rolling(window=50).mean()
+                        hist["MA200"] = hist["Close"].rolling(window=200).mean()
+
+                        fig_ma = px.line(
+                            hist,
+                            x=hist.index,
+                            y=["Close", "MA20", "MA50", "MA200"],
+                            title=f"{symbol} - Moving Averages",
+                            template="plotly_white",
+                        )
+                        fig_ma.update_layout(yaxis_title="Price", xaxis_title="Date")
+                        st.plotly_chart(fig_ma, use_container_width=True)
+
+                        hist["Returns"] = hist["Close"].pct_change()
+                        fig_returns = px.histogram(
+                            hist,
+                            x="Returns",
+                            title=f"{symbol} - Returns Distribution",
+                            template="plotly_white",
+                            nbins=50,
+                        )
+                        st.plotly_chart(fig_returns, use_container_width=True)
+
+                    with col2:
+                        fig_vol = px.bar(
+                            hist,
+                            x=hist.index,
+                            y="Volume",
+                            title=f"{symbol} - Volume Analysis",
+                            template="plotly_white",
+                        )
+                        st.plotly_chart(fig_vol, use_container_width=True)
+
+                        hist["Volatility"] = (
+                            hist["Returns"].rolling(window=20).std() * np.sqrt(252) * 100
+                        )
+                        fig_vol = px.line(
+                            hist,
+                            x=hist.index,
+                            y="Volatility",
+                            title=f"{symbol} - 20-Day Rolling Volatility",
+                            template="plotly_white",
+                        )
+                        fig_vol.update_layout(yaxis_title="Volatility (%)")
+                        st.plotly_chart(fig_vol, use_container_width=True)
+
+                    if symbol and news:
+                        st.subheader("News Sentiment Analysis")
+                        sentiment_data = analyze_news_sentiment(news)
+
+                        if sentiment_data:
+                            col1, col2 = st.columns([1, 2])
+
+                            with col1:
+                                st.markdown(f"### Overall Sentiment")
                                 st.markdown(
-                                    f"**Sentiment:** <span style='color: {color}'>{sentiment_label}</span> ({article['score']:.2f})",
+                                    f"<h2 style='color: {sentiment_data['color']}'>{sentiment_data['label']}</h2>",
                                     unsafe_allow_html=True,
                                 )
+                                st.metric(
+                                    "Sentiment Score",
+                                    f"{sentiment_data['average_score']:.2f}",
+                                )
+
+                            st.subheader("Article Sentiment Details")
+                            for article in sentiment_data["articles"]:
+                                sentiment_label, color = get_sentiment_label(
+                                    article["score"]
+                                )
+                                with st.expander(article["title"]):
+                                    st.markdown(f"**Date:** {article['date']}")
+                                    st.markdown(
+                                        f"**Sentiment:** <span style='color: {color}'>{sentiment_label}</span> ({article['score']:.2f})",
+                                        unsafe_allow_html=True,
+                                    )
 
         with tab2:
             st.header("Your Portfolio")
