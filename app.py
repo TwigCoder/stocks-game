@@ -14,6 +14,7 @@ from collections import defaultdict
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
+import json
 
 conn = sqlite3.connect("stocks_game.db", check_same_thread=False)
 c = conn.cursor()
@@ -138,10 +139,13 @@ def get_stock_data(symbol, period="1y"):
 def get_stock_price(stock):
     try:
         return stock.info["regularMarketPrice"]
-    except (KeyError, TypeError):
-        hist = stock.history(period="1d")
-        if not hist.empty:
-            return hist["Close"].iloc[-1]
+    except (KeyError, TypeError, json.JSONDecodeError, Exception):
+        try:
+            hist = stock.history(period="1d")
+            if not hist.empty:
+                return hist["Close"].iloc[-1]
+        except Exception:
+            pass
         return None
 
 
