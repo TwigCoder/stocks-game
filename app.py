@@ -15,6 +15,14 @@ import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import json
+from functools import lru_cache
+import threading
+
+price_cache = {}
+cache_lock = threading.Lock()
+CACHE_DURATION = 60
+last_request_time = 0
+MIN_REQUEST_INTERVAL = 0.5
 
 conn = sqlite3.connect("stocks_game.db", check_same_thread=False)
 c = conn.cursor()
@@ -130,25 +138,88 @@ def record_transaction(username, stock, shares, price, transaction_type):
     conn.commit()
 
 
+def rate_limit():
+    """Enforce rate limiting between API calls"""
+    global last_request_time
+    current_time = time.time()
+    time_since_last = current_time - last_request_time
+    if time_since_last < MIN_REQUEST_INTERVAL:
+        time.sleep(MIN_REQUEST_INTERVAL - time_since_last)
+    last_request_time = time.time()
+
+
 def get_stock_data(symbol, period="1y"):
-    stock = yf.Ticker(symbol)
-    hist = stock.history(period=period)
-    return hist
+    rate_limit()
+    try:
+        stock = yf.Ticker(symbol)
+        hist = stock.history(period=period)
+        return hist
+    except Exception as e:
+        print(f"Error fetching stock data for {symbol}: {e}")
+        return pd.DataFrame()
 
 
-def get_stock_price(stock):
+def get_cached_price(symbol):
+    """Get price from cache if available and fresh"""
+    with cache_lock:
+        if symbol in price_cache:
+            price, timestamp = price_cache[symbol]
+            if time.time() - timestamp < CACHE_DURATION:
+                return price
+    return None
+
+
+def set_cached_price(symbol, price):
+    """Store price in cache with timestamp"""
+    with cache_lock:
+        price_cache[symbol] = (price, time.time())
+
+
+def get_stock_price(stock_or_symbol):
+    """Get stock price with caching and rate limiting"""
+    if isinstance(stock_or_symbol, str):
+        symbol = stock_or_symbol
+        stock = None
+    else:
+        stock = stock_or_symbol
+        symbol = stock.ticker if hasattr(stock, 'ticker') else str(stock_or_symbol)
+
+    cached_price = get_cached_price(symbol)
+    if cached_price is not None:
+        return cached_price
+
+    rate_limit()
+
+    if stock is None:
+        try:
+            stock = yf.Ticker(symbol)
+        except Exception as e:
+            print(f"Error creating ticker for {symbol}: {e}")
+            return None
+
     try:
         hist = stock.history(period="1d")
         if not hist.empty:
-            return hist["Close"].iloc[-1]
-    except Exception:
-        pass
-    
+            price = hist["Close"].iloc[-1]
+            set_cached_price(symbol, price)
+            return price
+    except Exception as e:
+        print(f"Error fetching history for {symbol}: {e}")
+
     try:
-        return stock.info["regularMarketPrice"]
-    except (KeyError, TypeError, json.JSONDecodeError, Exception):
-        pass
-    
+        time.sleep(0.3)
+        info = stock.info
+        if info and "regularMarketPrice" in info:
+            price = info["regularMarketPrice"]
+            set_cached_price(symbol, price)
+            return price
+        elif info and "currentPrice" in info:
+            price = info["currentPrice"]
+            set_cached_price(symbol, price)
+            return price
+    except Exception as e:
+        print(f"Error fetching info for {symbol}: {e}")
+
     return None
 
 
@@ -186,6 +257,8 @@ def get_news(symbol=None, general_market=False):
 
 
 def get_stock_info(symbol):
+    """Get stock info with rate limiting"""
+    rate_limit()
     try:
         stock = yf.Ticker(symbol)
         info = stock.info
@@ -194,7 +267,8 @@ def get_stock_info(symbol):
             "marketCap": info.get("marketCap", 0),
             "industry": info.get("industry", "Unknown"),
         }
-    except:
+    except Exception as e:
+        print(f"Error fetching info for {symbol}: {e}")
         return {"sector": "Unknown", "marketCap": 0, "industry": "Unknown"}
 
 
@@ -209,8 +283,7 @@ def calculate_diversification_metrics(portfolio):
     stock_values = []
 
     for symbol, shares in portfolio:
-        stock = yf.Ticker(symbol)
-        price = get_stock_price(stock)
+        price = get_stock_price(symbol)
         if price is None:
             continue
 
@@ -386,8 +459,7 @@ def main():
             symbol = st.text_input("Enter Stock Symbol (e.g., AAPL, GOOGL)").upper()
 
             if symbol:
-                stock = yf.Ticker(symbol)
-                current_price = get_stock_price(stock)
+                current_price = get_stock_price(symbol)
                 if current_price is None:
                     st.error(f"Unable to fetch price for {symbol}")
                 else:
@@ -580,8 +652,7 @@ def main():
                 total_value = 0
 
                 for symbol, shares in portfolio:
-                    stock = yf.Ticker(symbol)
-                    current_price = get_stock_price(stock)
+                    current_price = get_stock_price(symbol)
                     if current_price is None:
                         continue
                     value = shares * current_price
@@ -710,10 +781,15 @@ def main():
                     portfolio_history = pd.DataFrame()
 
                     for symbol, shares in portfolio:
-                        stock = yf.Ticker(symbol)
-                        hist = stock.history(start=start_date, end=end_date)
-                        if not hist.empty:
-                            portfolio_history[symbol] = hist["Close"] * shares
+                        rate_limit()
+                        try:
+                            stock = yf.Ticker(symbol)
+                            hist = stock.history(start=start_date, end=end_date)
+                            if not hist.empty:
+                                portfolio_history[symbol] = hist["Close"] * shares
+                        except Exception as e:
+                            print(f"Error fetching history for {symbol}: {e}")
+                            continue
 
                     if not portfolio_history.empty:
                         portfolio_history["Total"] = portfolio_history.sum(axis=1)
@@ -1003,12 +1079,11 @@ def main():
 
             trending_data = []
             for symbol in trending_stocks:
-                stock = yf.Ticker(symbol)
-                current_price = get_stock_price(stock)
+                current_price = get_stock_price(symbol)
                 if current_price is None:
                     continue
 
-                hist = stock.history(period="1mo")
+                hist = get_stock_data(symbol, period="1mo")
                 if not hist.empty:
                     month_change = (
                         (hist["Close"].iloc[-1] - hist["Close"].iloc[0])
@@ -1125,9 +1200,8 @@ def main():
 
             sector_data = []
             for symbol, name in zip(sectors, sector_names):
-                stock = yf.Ticker(symbol)
                 try:
-                    hist = stock.history(period="1mo")
+                    hist = get_stock_data(symbol, period="1mo")
                     change = (
                         (hist["Close"].iloc[-1] - hist["Close"].iloc[0])
                         / hist["Close"].iloc[0]
@@ -1153,8 +1227,7 @@ def main():
             user_portfolio = get_portfolio(st.session_state.username)
             user_portfolio_value = 0
             for symbol, shares in user_portfolio:
-                stock = yf.Ticker(symbol)
-                current_price = get_stock_price(stock)
+                current_price = get_stock_price(symbol)
                 if current_price is not None:
                     user_portfolio_value += shares * current_price
 
@@ -1172,8 +1245,7 @@ def main():
                     total_shares = 0.0
 
                     for symbol, shares in portfolio:
-                        stock = yf.Ticker(symbol)
-                        current_price = get_stock_price(stock)
+                        current_price = get_stock_price(symbol)
                         if current_price is not None:
                             portfolio_value += shares * current_price
                         total_shares += float(shares)
